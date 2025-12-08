@@ -5,7 +5,6 @@ Target: 60-day forecast with >70% accuracy
 """
 
 import numpy as np
-import pandas as pd
 import joblib
 from sklearn.preprocessing import MinMaxScaler
 import warnings
@@ -14,7 +13,6 @@ warnings.filterwarnings('ignore')
 # Deep Learning with PyTorch (Windows-friendly)
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
 
 # Time Series
 from statsmodels.tsa.arima.model import ARIMA

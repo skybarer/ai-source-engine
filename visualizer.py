@@ -5,9 +5,6 @@ Creates plots for dissertation and dashboard
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pandas as pd
-import numpy as np
-from pathlib import Path
 
 from config import PLOTS_DIR
 
