@@ -1,5 +1,6 @@
 """
-Hybrid Forecasting Model: LSTM + ARIMA + Prophet Ensemble
+Hybrid Forecasting Model: PyTorch LSTM + ARIMA + Prophet Ensemble
+Windows-compatible version using PyTorch instead of TensorFlow
 Target: 60-day forecast with >70% accuracy
 """
 
@@ -8,15 +9,12 @@ import pandas as pd
 import joblib
 from sklearn.preprocessing import MinMaxScaler
 import warnings
-
 warnings.filterwarnings('ignore')
 
-# Deep Learning
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
+# Deep Learning with PyTorch (Windows-friendly)
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 
 # Time Series
 from statsmodels.tsa.arima.model import ARIMA
@@ -24,11 +22,52 @@ from prophet import Prophet
 
 from config import MODEL_CONFIG, LSTM_MODEL_PATH, SCALER_PATH
 
+# ==================== PyTorch LSTM Model ====================
+
+class LSTMModel(nn.Module):
+    """PyTorch LSTM for time series forecasting"""
+
+    def __init__(self, input_size=1, hidden_sizes=[128, 64, 32], output_size=60, dropout=0.2):
+        super(LSTMModel, self).__init__()
+
+        self.lstm1 = nn.LSTM(input_size, hidden_sizes[0], batch_first=True)
+        self.dropout1 = nn.Dropout(dropout)
+
+        self.lstm2 = nn.LSTM(hidden_sizes[0], hidden_sizes[1], batch_first=True)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.lstm3 = nn.LSTM(hidden_sizes[1], hidden_sizes[2], batch_first=True)
+
+        self.fc1 = nn.Linear(hidden_sizes[2], 64)
+        self.relu = nn.ReLU()
+        self.dropout3 = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(64, output_size)
+
+    def forward(self, x):
+        # LSTM layers
+        out, _ = self.lstm1(x)
+        out = self.dropout1(out)
+
+        out, _ = self.lstm2(out)
+        out = self.dropout2(out)
+
+        out, _ = self.lstm3(out)
+
+        # Take last output
+        out = out[:, -1, :]
+
+        # Fully connected
+        out = self.relu(self.fc1(out))
+        out = self.dropout3(out)
+        out = self.fc2(out)
+
+        return out
+
 
 class HybridForecastingModel:
     """
     Ensemble forecasting model combining:
-    - LSTM (50% weight) - Non-linear patterns
+    - PyTorch LSTM (50% weight) - Non-linear patterns
     - ARIMA (30% weight) - Linear time series
     - Prophet (20% weight) - Seasonality
     """
@@ -42,6 +81,9 @@ class HybridForecastingModel:
         self.lstm_model = None
         self.arima_order = self.config['arima_order']
 
+        # Set device (CPU for Windows compatibility)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         # Ensemble weights
         self.weights = {
             'lstm': 0.5,
@@ -49,33 +91,25 @@ class HybridForecastingModel:
             'prophet': 0.2
         }
 
+        print(f"✓ Using PyTorch on {self.device}")
+
     # ==================== LSTM Model ====================
 
     def build_lstm_model(self):
-        """Build LSTM architecture"""
+        """Build PyTorch LSTM architecture"""
         units = self.config['lstm_units']
 
-        model = Sequential([
-            LSTM(units[0], return_sequences=True, input_shape=(self.lookback, 1)),
-            Dropout(self.config['dropout_rate']),
-            LSTM(units[1], return_sequences=True),
-            Dropout(self.config['dropout_rate']),
-            LSTM(units[2], return_sequences=False),
-            Dense(64, activation='relu'),
-            Dropout(self.config['dropout_rate']),
-            Dense(self.horizon)
-        ])
-
-        model.compile(
-            optimizer=keras.optimizers.Adam(self.config['learning_rate']),
-            loss='mse',
-            metrics=['mae']
+        model = LSTMModel(
+            input_size=1,
+            hidden_sizes=units,
+            output_size=self.horizon,
+            dropout=self.config['dropout_rate']
         )
 
-        return model
+        return model.to(self.device)
 
     def prepare_sequences(self, data):
-        """Create sequences for LSTM training"""
+        """Create lookback sequences for LSTM training"""
         X, y = [], []
 
         for i in range(len(data) - self.lookback - self.horizon):
@@ -86,7 +120,7 @@ class HybridForecastingModel:
 
     def train_lstm(self, series, verbose=0):
         """
-        Train LSTM model on time series
+        Train PyTorch LSTM model on time series
 
         Args:
             series: pandas Series of mentions/sales data
@@ -102,29 +136,57 @@ class HybridForecastingModel:
         X, y = self.prepare_sequences(scaled_data)
 
         if len(X) == 0:
-            print("⚠️  Not enough data for LSTM training")
+            if verbose:
+                print("⚠️  Not enough data for LSTM training")
             return None
 
-        # Reshape for LSTM [samples, timesteps, features]
-        X = X.reshape((X.shape[0], X.shape[1], 1))
+        # Convert to PyTorch tensors
+        X_tensor = torch.FloatTensor(X).unsqueeze(-1).to(self.device)  # [batch, seq, features]
+        y_tensor = torch.FloatTensor(y).to(self.device)
 
-        # Build and train
+        # Build model
         self.lstm_model = self.build_lstm_model()
 
-        early_stop = EarlyStopping(
-            monitor='loss',
-            patience=10,
-            restore_best_weights=True
+        # Loss and optimizer
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(
+            self.lstm_model.parameters(),
+            lr=self.config['learning_rate']
         )
 
-        self.lstm_model.fit(
-            X, y,
-            epochs=self.config['epochs'],
-            batch_size=self.config['batch_size'],
-            verbose=verbose,
-            callbacks=[early_stop],
-            validation_split=0.1
-        )
+        # Training loop
+        self.lstm_model.train()
+        best_loss = float('inf')
+        patience_counter = 0
+        best_model_state = None
+
+        for epoch in range(self.config['epochs']):
+            # Forward pass
+            optimizer.zero_grad()
+            outputs = self.lstm_model(X_tensor)
+            loss = criterion(outputs, y_tensor)
+
+            # Backward pass
+            loss.backward()
+            optimizer.step()
+
+            # Early stopping
+            current_loss = loss.item()
+            if current_loss < best_loss:
+                best_loss = current_loss
+                patience_counter = 0
+                best_model_state = self.lstm_model.state_dict().copy()
+            else:
+                patience_counter += 1
+                if patience_counter >= 10:
+                    break
+
+            if verbose and epoch % 10 == 0:
+                print(f"    Epoch {epoch}, Loss: {current_loss:.4f}")
+
+        # Restore best model
+        if best_model_state is not None:
+            self.lstm_model.load_state_dict(best_model_state)
 
         return self.lstm_model
 
@@ -138,11 +200,15 @@ class HybridForecastingModel:
             series.values[-self.lookback:].reshape(-1, 1)
         )
 
-        # Reshape for prediction
-        X = scaled_data.reshape((1, self.lookback, 1))
+        # Convert to tensor
+        X = torch.FloatTensor(scaled_data).unsqueeze(0).unsqueeze(-1).to(self.device)
 
-        # Predict and inverse transform
-        prediction_scaled = self.lstm_model.predict(X, verbose=0)
+        # Predict
+        self.lstm_model.eval()
+        with torch.no_grad():
+            prediction_scaled = self.lstm_model(X).cpu().numpy()
+
+        # Inverse transform
         prediction = self.scaler.inverse_transform(
             prediction_scaled.reshape(-1, 1)
         ).flatten()
@@ -168,7 +234,7 @@ class HybridForecastingModel:
             return np.maximum(forecast.values, 0)
 
         except Exception as e:
-            print(f"⚠️  ARIMA failed: {e}")
+            # print(f"⚠️  ARIMA failed: {e}")
             return np.zeros(self.horizon)
 
     # ==================== Prophet Model ====================
@@ -201,6 +267,7 @@ class HybridForecastingModel:
             # Suppress Prophet logs
             import logging
             logging.getLogger('prophet').setLevel(logging.WARNING)
+            logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
             model.fit(prophet_df)
 
@@ -214,7 +281,7 @@ class HybridForecastingModel:
             )
 
         except Exception as e:
-            print(f"⚠️  Prophet failed: {e}")
+            # print(f"⚠️  Prophet failed: {e}")
             return np.zeros(self.horizon)
 
     # ==================== Ensemble Prediction ====================
@@ -231,13 +298,14 @@ class HybridForecastingModel:
             dict with forecast, confidence intervals, and components
         """
         if verbose:
-            print(f"Training ensemble for {df['product'].iloc[0] if 'product' in df.columns else 'product'}...")
+            product_name = df['product'].iloc[0] if 'product' in df.columns else 'product'
+            print(f"Training ensemble for {product_name}...")
 
         series = df['mentions']
 
         # Train LSTM
         if verbose:
-            print("  - Training LSTM...")
+            print("  - Training PyTorch LSTM...")
         self.train_lstm(series, verbose=0)
         lstm_pred = self.predict_lstm(series)
 
@@ -253,9 +321,9 @@ class HybridForecastingModel:
 
         # Weighted ensemble
         ensemble = (
-                self.weights['lstm'] * lstm_pred +
-                self.weights['arima'] * arima_pred +
-                self.weights['prophet'] * prophet_pred
+            self.weights['lstm'] * lstm_pred +
+            self.weights['arima'] * arima_pred +
+            self.weights['prophet'] * prophet_pred
         )
 
         # Calculate confidence intervals (using LSTM variance as proxy)
@@ -285,7 +353,11 @@ class HybridForecastingModel:
             path = LSTM_MODEL_PATH
 
         if self.lstm_model is not None:
-            self.lstm_model.save(path)
+            # Save as .pth for PyTorch
+            torch.save(
+                self.lstm_model.state_dict(),
+                str(path).replace('.h5', '.pth')
+            )
             joblib.dump(self.scaler, SCALER_PATH)
             print(f"✓ Model saved to {path}")
 
@@ -295,12 +367,15 @@ class HybridForecastingModel:
             path = LSTM_MODEL_PATH
 
         try:
-            self.lstm_model = load_model(path)
+            self.lstm_model = self.build_lstm_model()
+            self.lstm_model.load_state_dict(
+                torch.load(str(path).replace('.h5', '.pth'))
+            )
             self.scaler = joblib.load(SCALER_PATH)
             print(f"✓ Model loaded from {path}")
             return True
-        except:
-            print(f"⚠️  Could not load model from {path}")
+        except Exception as e:
+            print(f"⚠️  Could not load model: {e}")
             return False
 
 
@@ -308,7 +383,8 @@ class HybridForecastingModel:
 if __name__ == "__main__":
     from data_loader import KaggleDataLoader
 
-    print("Testing Hybrid Forecasting Model...")
+    print("Testing PyTorch-based Hybrid Forecasting Model...")
+    print(f"Device: {torch.device('cuda' if torch.cuda.is_available() else 'cpu')}")
 
     # Load data
     loader = KaggleDataLoader()
@@ -338,6 +414,8 @@ if __name__ == "__main__":
     print(f"Forecast min: {forecast['forecast'].min():.2f}")
     print(f"Forecast max: {forecast['forecast'].max():.2f}")
     print(f"95% CI width: {(forecast['upper_bound'] - forecast['lower_bound']).mean():.2f}")
+
+    print("\n✓ PyTorch model working successfully!")
 
     # Save model
     model.save_model()
