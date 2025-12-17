@@ -1,0 +1,93 @@
+# Virtual Environments
+venv/
+.venv/
+.venv1/
+ENV/
+env/
+venv1/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data & Models (keep processed data structure, ignore large files)
+data/raw/
+models/**/*.pth
+models/**/*.pkl
+*.joblib
+
+# Outputs (keep structure, ignore generated files)
+outputs/plots/*.png
+outputs/results/*.csv
+outputs/results/*.json
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.log
+*.lock
+
+# Node (if using for frontend)
+node_modules/
+npm-debug.log
+
+# Miscellaneous
+.cache/
+.pytest_cache/
+*.dll
