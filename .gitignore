@@ -91,3 +91,5 @@ npm-debug.log
 .cache/
 .pytest_cache/
 *.dll
+.idea/
+.vscode/
