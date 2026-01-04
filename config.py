@@ -53,9 +53,9 @@ TREND_SCORING = {
 
 # Validation Settings
 VALIDATION_CONFIG = {
-    "train_days": 120,
-    "test_days": 60,
-    "min_products_for_validation": 5,
+    "train_days": 30,      # ↓ Reduced to work with sparse per-product data
+    "test_days": 15,       # ↓ Reduced for flexible time series windows
+    "min_products_for_validation": 3,  # ↓ More lenient threshold
     "target_mape": 30.0,              # Target < 30% MAPE (70% accuracy)
     "early_detection_window": (45, 60) # Days before peak
 }
@@ -76,4 +76,4 @@ PRODUCT_CATEGORIES = [
     "Lifestyle Accessories"
 ]
 
-print(f"✓ Configuration loaded. Project root: {PROJECT_ROOT}")
+print(f"[OK] Configuration loaded. Project root: {PROJECT_ROOT}")

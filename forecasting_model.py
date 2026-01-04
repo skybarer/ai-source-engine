@@ -89,7 +89,7 @@ class HybridForecastingModel:
             'prophet': 0.2
         }
 
-        print(f"✓ Using PyTorch on {self.device}")
+        print(f"[OK] Using PyTorch on {self.device}")
 
     # ==================== LSTM Model ====================
 
@@ -127,6 +127,13 @@ class HybridForecastingModel:
         Returns:
             Trained model
         """
+        # Remove NaN values and check minimum data
+        series = series.dropna()
+        if len(series) < 5:
+            if verbose:
+                print("[WARN]  Not enough data for LSTM training (need at least 5 points)")
+            return None
+        
         # Scale data
         scaled_data = self.scaler.fit_transform(series.values.reshape(-1, 1))
 
@@ -135,12 +142,13 @@ class HybridForecastingModel:
 
         if len(X) == 0:
             if verbose:
-                print("⚠️  Not enough data for LSTM training")
+                print("[WARN]  Not enough data for LSTM training")
             return None
 
-        # Convert to PyTorch tensors
-        X_tensor = torch.FloatTensor(X).unsqueeze(-1).to(self.device)  # [batch, seq, features]
-        y_tensor = torch.FloatTensor(y).to(self.device)
+        # Convert to PyTorch tensors - X is already (batch, seq), reshape to (batch, seq, 1)
+        X_tensor = torch.FloatTensor(X).reshape(X.shape[0], X.shape[1], 1).to(self.device)  # [batch, seq, 1]
+        # y is (batch, horizon), reshape to (batch, horizon) for MSE loss
+        y_tensor = torch.FloatTensor(y).reshape(y.shape[0], -1).to(self.device)
 
         # Build model
         self.lstm_model = self.build_lstm_model()
@@ -198,8 +206,8 @@ class HybridForecastingModel:
             series.values[-self.lookback:].reshape(-1, 1)
         )
 
-        # Convert to tensor
-        X = torch.FloatTensor(scaled_data).unsqueeze(0).unsqueeze(-1).to(self.device)
+        # Convert to tensor - shape (1, lookback, 1) for batch prediction
+        X = torch.FloatTensor(scaled_data).reshape(1, -1, 1).to(self.device)
 
         # Predict
         self.lstm_model.eval()
@@ -232,7 +240,7 @@ class HybridForecastingModel:
             return np.maximum(forecast.values, 0)
 
         except Exception as e:
-            # print(f"⚠️  ARIMA failed: {e}")
+            # print(f"[WARN]  ARIMA failed: {e}")
             return np.zeros(self.horizon)
 
     # ==================== Prophet Model ====================
@@ -279,7 +287,7 @@ class HybridForecastingModel:
             )
 
         except Exception as e:
-            # print(f"⚠️  Prophet failed: {e}")
+            # print(f"[WARN]  Prophet failed: {e}")
             return np.zeros(self.horizon)
 
     # ==================== Ensemble Prediction ====================
@@ -330,7 +338,7 @@ class HybridForecastingModel:
         upper_bound = ensemble + 1.96 * std
 
         if verbose:
-            print("  ✓ Ensemble forecast complete")
+            print("  [OK] Ensemble forecast complete")
 
         return {
             'forecast': ensemble,
@@ -357,7 +365,7 @@ class HybridForecastingModel:
                 str(path).replace('.h5', '.pth')
             )
             joblib.dump(self.scaler, SCALER_PATH)
-            print(f"✓ Model saved to {path}")
+            print(f"[OK] Model saved to {path}")
 
     def load_model(self, path=None):
         """Load trained LSTM model and scaler"""
@@ -370,10 +378,10 @@ class HybridForecastingModel:
                 torch.load(str(path).replace('.h5', '.pth'))
             )
             self.scaler = joblib.load(SCALER_PATH)
-            print(f"✓ Model loaded from {path}")
+            print(f"[OK] Model loaded from {path}")
             return True
         except Exception as e:
-            print(f"⚠️  Could not load model: {e}")
+            print(f"[WARN]  Could not load model: {e}")
             return False
 
 
@@ -413,7 +421,7 @@ if __name__ == "__main__":
     print(f"Forecast max: {forecast['forecast'].max():.2f}")
     print(f"95% CI width: {(forecast['upper_bound'] - forecast['lower_bound']).mean():.2f}")
 
-    print("\n✓ PyTorch model working successfully!")
+    print("\n[OK] PyTorch model working successfully!")
 
     # Save model
     model.save_model()

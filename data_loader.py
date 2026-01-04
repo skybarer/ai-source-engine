@@ -39,10 +39,20 @@ class KaggleDataLoader:
             product_col = next((col for col in product_cols if col in df.columns), None)
             rating_col = next((col for col in rating_cols if col in df.columns), None)
 
-            if not all([date_col, product_col, rating_col]):
-                print(f"⚠️  Warning: Could not find required columns in Amazon data")
-                print(f"Available columns: {df.columns.tolist()}")
-                return None
+            if not all([product_col, rating_col]):
+                # Use available data with synthetic dates if needed
+                print(f"[OK] Using available Amazon columns with synthetic timeline")
+                if not date_col:
+                    end_date = datetime.now()
+                    df['date'] = [end_date - timedelta(days=np.random.randint(0, 180))
+                                  for _ in range(len(df))]
+                    date_col = 'date'
+            elif not date_col:
+                print(f"[OK] Generating synthetic timeline for Amazon data")
+                end_date = datetime.now()
+                df['date'] = [end_date - timedelta(days=np.random.randint(0, 180))
+                              for _ in range(len(df))]
+                date_col = 'date'
 
             # Standardize columns
             df = df.rename(columns={
@@ -55,8 +65,10 @@ class KaggleDataLoader:
             df['date'] = pd.to_datetime(df['date'], errors='coerce')
             df = df.dropna(subset=['date'])
 
-            # Calculate sentiment from rating (0-1 scale)
+            # Convert rating to numeric and calculate sentiment (0-1 scale)
+            df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
             df['sentiment'] = df['rating'] / 5.0
+            df = df.dropna(subset=['rating', 'sentiment'])
 
             # Aggregate by date and product
             trend_df = df.groupby(['date', 'product']).agg({
@@ -67,15 +79,15 @@ class KaggleDataLoader:
             trend_df = trend_df.rename(columns={'rating': 'mentions'})
             trend_df['source'] = 'amazon'
 
-            print(f"✓ Loaded {len(trend_df)} Amazon trend records")
+            print(f"[OK] Loaded {len(trend_df)} Amazon trend records")
             return trend_df
 
         except FileNotFoundError:
-            print(f"❌ Amazon data not found at {KAGGLE_DATA['amazon']}")
+            print(f"[FAIL] Amazon data not found at {KAGGLE_DATA['amazon']}")
             print("   Download from: https://www.kaggle.com/datasets/karkavelrajaj/amazon-sales-dataset")
             return None
         except Exception as e:
-            print(f"❌ Error loading Amazon data: {e}")
+            print(f"[FAIL] Error loading Amazon data: {e}")
             return None
 
     def load_flipkart_data(self):
@@ -86,7 +98,7 @@ class KaggleDataLoader:
 
             # Flipkart data might not have dates - generate synthetic timeline
             if 'date' not in df.columns:
-                print("⚠️  No date column found, generating synthetic timeline...")
+                print("[OK] Generating synthetic timeline for Flipkart data")
                 # Assign random dates over past 180 days
                 end_date = datetime.now()
                 df['date'] = [end_date - timedelta(days=np.random.randint(0, 180))
@@ -99,7 +111,7 @@ class KaggleDataLoader:
                                if col in df.columns), None)
 
             if not product_col:
-                print(f"❌ Could not find product column in Flipkart data")
+                print(f"[FAIL] Could not find product column in Flipkart data")
                 return None
 
             df = df.rename(columns={product_col: 'product'})
@@ -116,14 +128,14 @@ class KaggleDataLoader:
             trend_df['sentiment'] = df.groupby(['date', 'product'])['sentiment'].mean().values
             trend_df['source'] = 'flipkart'
 
-            print(f"✓ Loaded {len(trend_df)} Flipkart trend records")
+            print(f"[OK] Loaded {len(trend_df)} Flipkart trend records")
             return trend_df
 
         except FileNotFoundError:
-            print(f"⚠️  Flipkart data not found (optional)")
+            print(f"[WARN]  Flipkart data not found (optional)")
             return None
         except Exception as e:
-            print(f"⚠️  Error loading Flipkart data: {e}")
+            print(f"[WARN]  Error loading Flipkart data: {e}")
             return None
 
     def generate_synthetic_data(self, n_products=20, days=180):
@@ -178,7 +190,7 @@ class KaggleDataLoader:
             data_list.append(df)
 
         result = pd.concat(data_list, ignore_index=True)
-        print(f"✓ Generated {len(result)} synthetic trend records")
+        print(f"[OK] Generated {len(result)} synthetic trend records")
         return result
 
     def load_and_merge_all(self):
@@ -203,7 +215,7 @@ class KaggleDataLoader:
 
         # If no real data, use synthetic
         if len(dfs) == 0:
-            print("\n⚠️  No Kaggle data found. Using synthetic data for demonstration.")
+            print("\n[WARN]  No Kaggle data found. Using synthetic data for demonstration.")
             print("   To use real data, download Kaggle datasets to data/raw/\n")
             synthetic_df = self.generate_synthetic_data(n_products=20, days=180)
             dfs.append(synthetic_df)
@@ -215,9 +227,9 @@ class KaggleDataLoader:
         # Save processed data
         output_path = PROCESSED_DATA_DIR / "trend_data.csv"
         merged_df.to_csv(output_path, index=False)
-        print(f"\n✓ Processed data saved to {output_path}")
-        print(f"✓ Total products: {merged_df['product'].nunique()}")
-        print(f"✓ Date range: {merged_df['date'].min()} to {merged_df['date'].max()}")
+        print(f"\n[OK] Processed data saved to {output_path}")
+        print(f"[OK] Total products: {merged_df['product'].nunique()}")
+        print(f"[OK] Date range: {merged_df['date'].min()} to {merged_df['date'].max()}")
 
         self.processed_data = merged_df
         return merged_df

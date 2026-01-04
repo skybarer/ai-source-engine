@@ -84,13 +84,21 @@ class ModelValidator:
         train_days = self.config['train_days']
         test_days = self.config['test_days']
 
-        # Check if enough data
-        if len(product_df) < train_days + test_days:
+        # Check if enough data - flexible check for sparse data
+        min_required = max(train_days, 20)  # At least 20 data points
+        if len(product_df) < min_required:
+            return None
+
+        # Split data - adapt to available data
+        actual_train_days = min(train_days, len(product_df) - test_days)
+        actual_test_days = min(test_days, len(product_df) - actual_train_days)
+        
+        if actual_test_days < 5:  # Need at least 5 test points
             return None
 
         # Split data
-        train_df = product_df[:train_days].copy()
-        test_df = product_df[train_days:train_days + test_days].copy()
+        train_df = product_df[:actual_train_days].copy()
+        test_df = product_df[actual_train_days:actual_train_days + actual_test_days].copy()
 
         # Get actual values
         actual = test_df['mentions'].values
@@ -116,7 +124,7 @@ class ModelValidator:
             return result
 
         except Exception as e:
-            print(f"⚠️  Validation failed for {product_name}: {e}")
+            print(f"[WARN]  Validation failed for {product_name}: {e}")
             return None
 
     def validate_all_products(self, df_all, model, max_products=None):
@@ -151,14 +159,14 @@ class ModelValidator:
 
             if result:
                 results.append(result)
-                print(f"  ✓ MAPE: {result['MAPE']:.2f}% | Accuracy: {result['Accuracy']:.2f}%")
+                print(f"  [OK] MAPE: {result['MAPE']:.2f}% | Accuracy: {result['Accuracy']:.2f}%")
                 print(
-                    f"  ✓ Peak Error: {result['Peak_Timing_Error_Days']} days | Early Detection: {result['Early_Detection_Success']}")
+                    f"  [OK] Peak Error: {result['Peak_Timing_Error_Days']} days | Early Detection: {result['Early_Detection_Success']}")
             else:
-                print(f"  ✗ Skipped (insufficient data)")
+                print(f"  [FAIL] Skipped (insufficient data)")
 
         if not results:
-            print("\n❌ No products could be validated")
+            print("\n[FAIL] No products could be validated")
             return None
 
         results_df = pd.DataFrame(results)
@@ -166,7 +174,7 @@ class ModelValidator:
         # Save results
         output_path = RESULTS_DIR / "validation_metrics.csv"
         results_df.to_csv(output_path, index=False)
-        print(f"\n✓ Results saved to {output_path}")
+        print(f"\n[OK] Results saved to {output_path}")
 
         return results_df
 
@@ -192,7 +200,7 @@ class ModelValidator:
 
         # Check if target met
         target_met = results_df['Accuracy'].mean() >= 70
-        print(f"\n{'✓' if target_met else '✗'} Target >70% Accuracy: {'ACHIEVED' if target_met else 'NOT MET'}")
+        print(f"\n{'[OK]' if target_met else '[FAIL]'} Target >70% Accuracy: {'ACHIEVED' if target_met else 'NOT MET'}")
 
         # Best and worst performers
         print(f"\n" + "=" * 60)

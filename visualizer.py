@@ -26,7 +26,7 @@ class Visualizer:
         Plot forecast vs actual with confidence intervals
 
         Args:
-            product_df: Full product DataFrame
+            product_df: Full product DataFrame or aggregated trend DataFrame
             forecast_result: Dict from model.ensemble_forecast()
             train_days: Number of training days
             save_name: Filename to save plot
@@ -37,17 +37,34 @@ class Visualizer:
         dates = product_df['date'].values
         mentions = product_df['mentions'].values
 
-        # Split point
+        # Ensure train_days doesn't exceed data length
+        train_days = min(train_days, len(product_df) - 1)
+        
+        # Calculate actual forecast length (handle case where forecast is longer than available test data)
+        forecast_len = len(forecast_result['forecast'])
+        available_test_points = len(product_df) - train_days
+        actual_test_len = min(forecast_len, available_test_points)
+        
+        # Split point - ensure test_dates has same length as forecast
         train_dates = dates[:train_days]
-        test_dates = dates[train_days:train_days + len(forecast_result['forecast'])]
+        test_dates = dates[train_days:train_days + forecast_len]
+        
+        # If we don't have enough actual dates, create synthetic ones for the forecast period
+        if len(test_dates) < forecast_len:
+            import pandas as pd
+            last_date = pd.Timestamp(dates[-1])
+            # Generate dates for forecast period
+            date_range = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_len, freq='D')
+            test_dates = date_range.values
 
         # Plot historical
         ax.plot(train_dates, mentions[:train_days],
                 'b-', linewidth=2.5, label='Historical Data', alpha=0.8)
 
-        # Plot actual test data
-        ax.plot(test_dates, mentions[train_days:train_days + len(test_dates)],
-                'g-', linewidth=2.5, label='Actual (Test Period)', alpha=0.8)
+        # Plot actual test data if available
+        if actual_test_len > 0:
+            ax.plot(test_dates[:actual_test_len], mentions[train_days:train_days + actual_test_len],
+                    'g-', linewidth=2.5, label='Actual (Test Period)', alpha=0.8)
 
         # Plot forecast
         ax.plot(test_dates, forecast_result['forecast'],
@@ -79,7 +96,7 @@ class Visualizer:
         if save_name:
             save_path = self.plots_dir / save_name
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"✓ Plot saved to {save_path}")
+            print(f"[OK] Plot saved to {save_path}")
 
         plt.show()
 
@@ -142,7 +159,7 @@ class Visualizer:
         plt.tight_layout()
         save_path = self.plots_dir / save_name
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Comparison plot saved to {save_path}")
+        print(f"[OK] Comparison plot saved to {save_path}")
         plt.show()
 
     def plot_trend_scores(self, df_scored, top_n=15, save_name='trend_scores.png'):
@@ -187,7 +204,7 @@ class Visualizer:
         plt.tight_layout()
         save_path = self.plots_dir / save_name
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Trend scores plot saved to {save_path}")
+        print(f"[OK] Trend scores plot saved to {save_path}")
         plt.show()
 
     def plot_component_breakdown(self, forecast_result, save_name='components.png'):
@@ -240,7 +257,7 @@ class Visualizer:
         plt.tight_layout()
         save_path = self.plots_dir / save_name
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Component breakdown saved to {save_path}")
+        print(f"[OK] Component breakdown saved to {save_path}")
         plt.show()
 
 
