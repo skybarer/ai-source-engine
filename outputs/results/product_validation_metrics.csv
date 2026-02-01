@@ -1,0 +1,6 @@
+Product,MAE,RMSE,MAPE,Accuracy,Peak_Timing_Error_Days,Early_Detection_Success,Direction_Correct,Actual_Peak_Day,Predicted_Peak_Day,Train_Size,Test_Size,Forecast_Mean,Actual_Mean
+TheLostPuppy Back Cover for Apple iPad Air,0.98,1.15,65.5,34.5,12,False,True,12,0,30,15,0.42,1.4
+S4S Stylish Women's Push-up Bra,0.75,0.91,63.26,36.74,1,False,False,5,4,30,15,0.38,1.13
+TheLostPuppy Back Cover for Apple iPad Air 2,0.88,1.05,65.34,34.66,1,False,True,3,4,30,15,0.39,1.27
+"Voylla Metal, Alloy Necklace",0.78,0.85,67.29,32.71,7,False,True,7,0,30,15,0.35,1.13
+WallDesign Small Vinyl Sticker,0.85,0.96,64.23,35.77,4,False,True,4,0,30,15,0.41,1.27

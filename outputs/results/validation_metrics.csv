@@ -1,0 +1,2 @@
+Product,Data_Points,Train_Size,Test_Size,Actual_Mean,Predicted_Mean,MAE,RMSE,MAPE,Accuracy,Peak_Timing_Error_Days,Early_Detection_Success,Direction_Correct,Actual_Peak_Day,Predicted_Peak_Day
+Market Aggregate (All Products),360,30,15,52.8,18.27,35.6,47.83,69.27,30.73,2,False,True,3,1

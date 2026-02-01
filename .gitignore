@@ -53,15 +53,11 @@ MANIFEST
 htmlcov/
 
 # Data & Models (keep processed data structure, ignore large files)
-data/raw/
 models/**/*.pth
 models/**/*.pkl
+models/**/*.h5
+models/**/*.joblib
 *.joblib
-
-# Outputs (keep structure, ignore generated files)
-outputs/plots/*.png
-outputs/results/*.csv
-outputs/results/*.json
 
 # Jupyter
 .ipynb_checkpoints/
