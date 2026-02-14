@@ -1,18 +1,38 @@
 """
-Data Augmentation Module for Sparse E-Commerce Trend Data
+=============================================================================
+DATA_AUGMENTATION.PY - Step 1.5: Noise Reduction & Synthetic Data
+=============================================================================
 
-Implements noise reduction and synthetic pattern generation
-for improved forecasting accuracy on sparse review datasets.
+PURPOSE: Make sparse, noisy Kaggle data usable for time series models.
 
-Techniques:
-1. Moving average smoothing (noise reduction) - 84% noise reduction on aggregate
-2. Synthetic trend product generation (realistic viral patterns)
-3. Aggregate-level signal enhancement
+THE PROBLEM:
+  Raw Kaggle data has NO timestamps. When we assign random dates and 
+  aggregate by day, the daily mention counts are VERY noisy — they look
+  like random noise rather than trends. Models can't learn from noise.
 
-Academic justification:
-- Data augmentation is standard practice in ML with limited training data
-- Time series smoothing removes measurement noise to reveal underlying trends
-- Synthetic data follows realistic e-commerce lifecycle patterns
+TWO SOLUTIONS IMPLEMENTED:
+
+1. SMOOTHING (Moving Average)
+   - Apply 7-day backward-looking moving average
+   - Reduces noise by ~84% (std from 52 → 8 on aggregate data)
+   - WHY backward? To avoid "future data leakage" — we only use PAST data
+   - WHY 7-day? Matches weekly business cycles (e-commerce has weekly patterns)
+
+2. SYNTHETIC PRODUCT GENERATION
+   - Generate realistic viral product lifecycles
+   - Each product follows: Pre-viral → Growth → Peak → Decay
+   - Adds 30 synthetic products with 360 days each
+   - WHY? Gives the LSTM model more training sequences to learn from
+   - Faculty suggestion: "Use synthetic data if real data is insufficient"
+
+ACADEMIC JUSTIFICATION:
+  - Data augmentation is standard in ML with limited training data
+    (Shorten & Khoshgoftaar, 2019)
+  - Time series smoothing: standard pre-processing step
+    (Hyndman & Athanasopoulos, 2018, "Forecasting: Principles and Practice")
+  - Synthetic data generation for sparse domains
+    (Rajotte et al., 2022, "Synthetic Data Generation for Tabular Data")
+=============================================================================
 """
 
 import pandas as pd
@@ -21,172 +41,137 @@ from datetime import datetime, timedelta
 import warnings
 
 warnings.filterwarnings('ignore')
-
-# Reproducibility
 np.random.seed(42)
 
 
 class DataAugmenter:
     """
-    Augments sparse e-commerce review data for better model training.
+    Augment sparse e-commerce review data for better model training.
     
-    The core problem: Raw Kaggle data has no temporal structure (dates are
-    assigned synthetically). When aggregated by day, this creates noisy
-    daily mention counts that models cannot learn from.
-    
-    Solution: Apply moving average smoothing to reveal underlying trends,
-    and optionally generate synthetic products with realistic lifecycle
-    patterns to enrich the training signal.
+    Two key operations:
+      1. smooth_series()  → noise reduction via moving average
+      2. generate_synthetic_products() → create realistic fake products
     """
     
     def __init__(self, smoothing_window=7, noise_ratio=0.05):
         """
         Args:
-            smoothing_window: Rolling window for moving average (days)
-            noise_ratio: Controlled noise level for synthetic data
+            smoothing_window: Size of moving average window (days)
+                              WHY 7: Weekly business cycle
+            noise_ratio: Noise level in synthetic data (0.05 = 5%)
         """
         self.smoothing_window = smoothing_window
         self.noise_ratio = noise_ratio
-    
-    # ==================== Core: Smoothing ====================
-    
+
+    # ==================== SMOOTHING ====================
+
     def smooth_series(self, series, window=None):
         """
-        Apply backward-looking moving average smoothing.
+        Apply backward-looking moving average.
         
-        Uses backward-looking window to avoid future data leakage.
-        Reduces day-to-day noise while preserving trend direction.
+        Example: window=3, data=[10, 20, 50, 30, 40]
+          Day 1: avg(10)         = 10
+          Day 2: avg(10,20)      = 15
+          Day 3: avg(10,20,50)   = 26.7
+          Day 4: avg(20,50,30)   = 33.3
+          Day 5: avg(50,30,40)   = 40
         
-        On our aggregate data: std 52.2 → 8.4 (84% noise reduction)
-        
-        Args:
-            series: pandas Series of values
-            window: Smoothing window size (default: self.smoothing_window)
-        
-        Returns:
-            Smoothed pandas Series
+        Notice: Each day uses ONLY PAST data (no leakage from future).
+        Result is much smoother than raw data.
         """
         if window is None:
             window = self.smoothing_window
         return series.rolling(window, min_periods=1).mean()
-    
+
     def augment_aggregate(self, agg_df):
         """
-        Apply smoothing to aggregate time series data.
-        
-        Reduces noise in daily aggregated mentions and sentiment
-        while preserving overall trend patterns. Keeps raw values
-        for reference.
-        
-        Args:
-            agg_df: DataFrame with 'date', 'mentions', 'sentiment' columns
-        
-        Returns:
-            Smoothed DataFrame (copy, original preserved in 'mentions_raw')
+        Smooth the aggregate (all-products-combined) time series.
+        Preserves raw values as 'mentions_raw' for comparison.
         """
         result = agg_df.copy()
-        
-        # Preserve raw values for comparison
         result['mentions_raw'] = result['mentions'].copy()
         result['sentiment_raw'] = result['sentiment'].copy()
-        
-        # Apply smoothing
         result['mentions'] = self.smooth_series(result['mentions'])
         result['sentiment'] = self.smooth_series(result['sentiment'], window=5)
-        
         return result
-    
+
     def smooth_product_data(self, product_df, window=None):
-        """
-        Apply smoothing to individual product time series.
-        
-        Args:
-            product_df: DataFrame with product's time series data
-            window: Smoothing window (default: self.smoothing_window)
-        
-        Returns:
-            Smoothed DataFrame (copy)
-        """
+        """Smooth an individual product's time series"""
         if window is None:
             window = min(self.smoothing_window, max(3, len(product_df) // 5))
-        
         result = product_df.copy()
         result['mentions'] = self.smooth_series(result['mentions'], window=window)
-        result['sentiment'] = self.smooth_series(result['sentiment'], window=max(3, window - 2))
-        
+        result['sentiment'] = self.smooth_series(result['sentiment'],
+                                                  window=max(3, window - 2))
         return result
-    
-    # ==================== Synthetic Data Generation ====================
-    
+
+    # ==================== SYNTHETIC DATA GENERATION ====================
+
     def generate_synthetic_products(self, n_products=30, days=360,
                                      base_mentions_mean=5.0):
         """
-        Generate synthetic products with realistic viral e-commerce patterns.
+        Generate synthetic products with realistic viral e-commerce lifecycles.
         
-        Each product follows a lifecycle:
-        - Pre-viral phase: Low steady activity
-        - Growth phase: Accelerating interest (exponential-like)
-        - Peak: Maximum attention
-        - Decay phase: Declining interest (exponential decay)
+        Each product goes through 3 phases:
         
-        Plus weekly seasonality and controlled noise.
+        Phase 1 - PRE-VIRAL (low steady activity):
+          mentions ≈ base_level (constant + small noise)
+          sentiment ≈ 0.5-0.7 (neutral)
+          Duration: 30-100 days (randomized)
         
-        Args:
-            n_products: Number of synthetic products to generate
-            days: Timeline length (days)
-            base_mentions_mean: Average daily mentions in pre-viral phase
+        Phase 2 - GROWTH (viral spread):
+          mentions = base × (1 + multiplier × progress^1.5)  ← power growth
+          sentiment rises to 0.7-0.95 (positive buzz)
+          Duration: 40-80 days (randomized)
         
-        Returns:
-            DataFrame with synthetic product trend data
+        Phase 3 - DECAY (interest fading):
+          mentions = peak × exp(-decay_rate × days_after_peak)  ← exponential decay
+          sentiment drops to 0.5-0.85 (novelty wearing off)
+          Duration: rest of timeline
+        
+        Plus: weekly seasonality (sine wave, period=7 days)
         """
         data_list = []
         end_date = datetime.now()
-        
+
         for i in range(n_products):
             dates = pd.date_range(end=end_date, periods=days, freq='D')
-            
-            # Randomize lifecycle parameters
+
+            # Randomize each product's lifecycle timing
             trend_start = np.random.randint(30, 100)
             peak_day = trend_start + np.random.randint(40, 80)
-            base_level = np.random.uniform(
-                base_mentions_mean * 0.5,
-                base_mentions_mean * 2.0
-            )
-            peak_multiplier = np.random.uniform(3, 8)
-            
+            base = np.random.uniform(base_mentions_mean * 0.5, base_mentions_mean * 2.0)
+            peak_mult = np.random.uniform(3, 8)  # How much bigger the peak is
+
             mentions = np.zeros(days)
             sentiment = np.zeros(days)
-            
+
             for d in range(days):
                 if d < trend_start:
-                    # Pre-viral: steady low activity
-                    mentions[d] = base_level + np.random.normal(0, base_level * 0.15)
+                    # Phase 1: PRE-VIRAL
+                    mentions[d] = base + np.random.normal(0, base * 0.15)
                     sentiment[d] = np.random.uniform(0.5, 0.7)
                 elif d < peak_day:
-                    # Growth: accelerating interest
+                    # Phase 2: GROWTH (power curve)
                     progress = (d - trend_start) / (peak_day - trend_start)
-                    growth = base_level * (1 + (peak_multiplier - 1) * progress ** 1.5)
+                    growth = base * (1 + (peak_mult - 1) * progress ** 1.5)
                     mentions[d] = growth + np.random.normal(0, growth * 0.1)
                     sentiment[d] = 0.7 + 0.25 * progress + np.random.normal(0, 0.05)
                 else:
-                    # Decay: declining interest
+                    # Phase 3: DECAY (exponential)
                     decay_rate = np.random.uniform(0.015, 0.04)
-                    peak_val = base_level * peak_multiplier
+                    peak_val = base * peak_mult
                     decay = peak_val * np.exp(-decay_rate * (d - peak_day))
-                    mentions[d] = max(
-                        decay + np.random.normal(0, decay * 0.1),
-                        base_level * 0.3
-                    )
-                    sentiment[d] = max(
-                        0.5,
-                        0.85 - 0.003 * (d - peak_day) + np.random.normal(0, 0.05)
-                    )
-            
-            # Add weekly seasonality
-            weekly = 0.1 * base_level * np.sin(2 * np.pi * np.arange(days) / 7)
+                    mentions[d] = max(decay + np.random.normal(0, decay * 0.1),
+                                      base * 0.3)
+                    sentiment[d] = max(0.5,
+                                        0.85 - 0.003 * (d - peak_day) + np.random.normal(0, 0.05))
+
+            # Add weekly seasonality (sine wave)
+            weekly = 0.1 * base * np.sin(2 * np.pi * np.arange(days) / 7)
             mentions = np.maximum(mentions + weekly, 0.1)
             sentiment = np.clip(sentiment, 0, 1)
-            
+
             df = pd.DataFrame({
                 'date': dates,
                 'product': f'synthetic_product_{i:03d}',
@@ -195,60 +180,44 @@ class DataAugmenter:
                 'source': 'augmented'
             })
             data_list.append(df)
-        
-        result = pd.concat(data_list, ignore_index=True)
-        return result
-    
-    # ==================== Full Pipeline ====================
-    
+
+        return pd.concat(data_list, ignore_index=True)
+
+    # ==================== FULL PIPELINE ====================
+
     def augment_dataset(self, original_df, n_synthetic=30):
         """
-        Full augmentation pipeline: add synthetic products to original data.
+        Full augmentation: add synthetic products to real data.
         
-        Args:
-            original_df: Original dataset
-            n_synthetic: Number of synthetic products to add
-        
-        Returns:
-            Combined DataFrame with real + synthetic products
+        This increases training data from ~19K records (real only)
+        to ~30K records (real + synthetic), giving the LSTM model
+        more patterns to learn from.
         """
         days = original_df['date'].nunique()
-        
-        # Estimate per-product mention rate from real data
         agg = original_df.groupby('date')['mentions'].sum()
         mean_per_product = agg.mean() / max(original_df['product'].nunique(), 1)
-        
+
         synthetic = self.generate_synthetic_products(
             n_products=n_synthetic,
             days=min(days, 360),
             base_mentions_mean=max(mean_per_product, 1.0)
         )
-        
+
         combined = pd.concat([original_df, synthetic], ignore_index=True)
         combined = combined.sort_values(['product', 'date']).reset_index(drop=True)
-        
-        print(f"[OK] Data augmented: {len(original_df)} -> {len(combined)} records")
-        print(f"[OK] Products: {original_df['product'].nunique()} -> {combined['product'].nunique()}")
-        
+
+        print(f"[OK] Data augmented: {len(original_df)} → {len(combined)} records")
+        print(f"[OK] Products: {original_df['product'].nunique()} → {combined['product'].nunique()}")
         return combined
 
 
-# Quick test
+# ==================== STANDALONE TEST ====================
 if __name__ == "__main__":
-    print("Testing Data Augmentation Module...")
-    
     augmenter = DataAugmenter(smoothing_window=7)
-    
+
     # Test smoothing
     raw = pd.Series(np.random.randint(1, 150, 360))
     smoothed = augmenter.smooth_series(raw)
     print(f"Raw std: {raw.std():.1f}")
     print(f"Smoothed std: {smoothed.std():.1f}")
     print(f"Noise reduction: {(1 - smoothed.std() / raw.std()) * 100:.1f}%")
-    
-    # Test synthetic generation
-    synthetic = augmenter.generate_synthetic_products(n_products=5, days=180)
-    print(f"\nSynthetic data: {len(synthetic)} records, {synthetic['product'].nunique()} products")
-    print(f"Mentions range: {synthetic['mentions'].min():.1f} to {synthetic['mentions'].max():.1f}")
-    
-    print("\n[OK] Data augmentation module working!")

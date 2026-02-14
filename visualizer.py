@@ -1,23 +1,32 @@
 """
-Visualization Module
-Creates plots for dissertation and dashboard
+=============================================================================
+VISUALIZER.PY - Step 5: Generate Dissertation Plots
+=============================================================================
+
+PURPOSE: Create publication-quality figures for the dissertation.
+
+PLOTS GENERATED:
+  1. Forecast vs Actual    → Shows how well the model predicts
+  2. Model Comparison      → MAPE distribution, accuracy bars, peak detection
+  3. Trend Leaderboard     → Top products ranked by trend score
+  4. Component Breakdown   → Individual LSTM/ARIMA/Prophet contributions
+=============================================================================
 """
 
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend (prevents plt.show() blocking)
+matplotlib.use('Agg')  # Non-interactive backend (saves to file, no popup)
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 from config import PLOTS_DIR
 
-# Set style
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (14, 6)
 plt.rcParams['font.size'] = 11
 
 
 class Visualizer:
-    """Create visualizations for analysis and reporting"""
+    """Create dissertation-quality visualizations"""
 
     def __init__(self):
         self.plots_dir = PLOTS_DIR
@@ -25,279 +34,182 @@ class Visualizer:
     def plot_forecast_with_actual(self, product_df, forecast_result,
                                   train_days=120, save_name=None):
         """
-        Plot forecast vs actual with confidence intervals
-
-        Args:
-            product_df: Full product DataFrame or aggregated trend DataFrame
-            forecast_result: Dict from model.ensemble_forecast()
-            train_days: Number of training days
-            save_name: Filename to save plot
+        Plot: Historical data + forecast + confidence interval.
+        
+        Shows:
+          Blue line  = historical data (training period)
+          Green line = actual test data (what really happened)
+          Red dashed = our forecast (what we predicted)
+          Red shaded = 95% confidence interval
+          Orange line = early warning window marker
         """
         fig, ax = plt.subplots(figsize=(16, 7))
 
-        # Historical data
         dates = product_df['date'].values
         mentions = product_df['mentions'].values
-
-        # Ensure train_days doesn't exceed data length
         train_days = min(train_days, len(product_df) - 1)
         
-        # Calculate actual forecast length (handle case where forecast is longer than available test data)
         forecast_len = len(forecast_result['forecast'])
-        available_test_points = len(product_df) - train_days
-        actual_test_len = min(forecast_len, available_test_points)
-        
-        # Split point - ensure test_dates has same length as forecast
+        available_test = len(product_df) - train_days
+        actual_test_len = min(forecast_len, available_test)
+
         train_dates = dates[:train_days]
         test_dates = dates[train_days:train_days + forecast_len]
-        
-        # If we don't have enough actual dates, create synthetic ones for the forecast period
+
+        # If not enough dates, extend with synthetic dates
         if len(test_dates) < forecast_len:
             import pandas as pd
-            last_date = pd.Timestamp(dates[-1])
-            # Generate dates for forecast period
-            date_range = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_len, freq='D')
-            test_dates = date_range.values
+            last = pd.Timestamp(dates[-1])
+            test_dates = pd.date_range(
+                start=last + pd.Timedelta(days=1),
+                periods=forecast_len, freq='D'
+            ).values
 
-        # Plot historical
+        # Historical data (blue)
         ax.plot(train_dates, mentions[:train_days],
                 'b-', linewidth=2.5, label='Historical Data', alpha=0.8)
 
-        # Plot actual test data if available
+        # Actual test data (green)
         if actual_test_len > 0:
-            ax.plot(test_dates[:actual_test_len], mentions[train_days:train_days + actual_test_len],
-                    'g-', linewidth=2.5, label='Actual (Test Period)', alpha=0.8)
+            ax.plot(test_dates[:actual_test_len],
+                    mentions[train_days:train_days + actual_test_len],
+                    'g-', linewidth=2.5, label='Actual (Test)', alpha=0.8)
 
-        # Plot forecast
+        # Our forecast (red dashed)
         ax.plot(test_dates, forecast_result['forecast'],
                 'r--', linewidth=2.5, label='Ensemble Forecast', alpha=0.9)
 
-        # Confidence interval
+        # 95% confidence interval (red shaded)
         ax.fill_between(test_dates,
                         forecast_result['lower_bound'],
                         forecast_result['upper_bound'],
-                        alpha=0.25, color='red',
-                        label='95% Confidence Interval')
+                        alpha=0.25, color='red', label='95% CI')
 
-        # Mark early warning zone (45-60 days before end of training)
+        # Early warning line
         warning_date = train_dates[-45] if len(train_dates) >= 45 else train_dates[0]
         ax.axvline(warning_date, color='orange', linestyle=':',
                    linewidth=2.5, label='Early Warning Window', alpha=0.7)
 
-        # Formatting
-        product_name = product_df['product'].iloc[0] if 'product' in product_df.columns else 'Product'
+        name = product_df['product'].iloc[0] if 'product' in product_df.columns else 'Product'
         ax.set_xlabel('Date', fontsize=13, fontweight='bold')
         ax.set_ylabel('Product Mentions', fontsize=13, fontweight='bold')
-        ax.set_title(f'AI Trend Forecasting: {product_name}',
-                     fontsize=15, fontweight='bold', pad=20)
-        ax.legend(loc='best', fontsize=11, framealpha=0.9)
+        ax.set_title(f'AI Trend Forecasting: {name}', fontsize=15, fontweight='bold')
+        ax.legend(loc='best', fontsize=11)
         ax.grid(alpha=0.3)
-
         plt.tight_layout()
 
         if save_name:
-            save_path = self.plots_dir / save_name
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"[OK] Plot saved to {save_path}")
-
+            plt.savefig(self.plots_dir / save_name, dpi=300, bbox_inches='tight')
+            print(f"[OK] Saved {save_name}")
         plt.show()
 
     def plot_model_comparison(self, results_df, save_name='model_comparison.png'):
         """
-        Compare metrics across products
-
-        Args:
-            results_df: DataFrame from validator
-            save_name: Filename to save
+        4-panel comparison plot:
+          Top-left:     MAPE histogram (are predictions mostly good?)
+          Top-right:    Accuracy bar chart (top 10 products)
+          Bottom-left:  Peak timing scatter (predicted vs actual peak day)
+          Bottom-right: Early detection pie chart (success rate)
         """
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
         # MAPE distribution
         axes[0, 0].hist(results_df['MAPE'], bins=15, color='steelblue',
                         edgecolor='black', alpha=0.7)
-        axes[0, 0].axvline(30, color='red', linestyle='--',
-                           linewidth=2, label='Target: 30%')
-        axes[0, 0].set_xlabel('MAPE (%)', fontsize=12)
-        axes[0, 0].set_ylabel('Frequency', fontsize=12)
-        axes[0, 0].set_title('MAPE Distribution Across Products',
-                             fontsize=14, fontweight='bold')
+        axes[0, 0].axvline(30, color='red', linestyle='--', linewidth=2, label='Target: 30%')
+        axes[0, 0].set_xlabel('MAPE (%)')
+        axes[0, 0].set_title('MAPE Distribution', fontsize=14, fontweight='bold')
         axes[0, 0].legend()
 
         # Accuracy by product
-        top_10 = results_df.nsmallest(10, 'MAPE')
-        axes[0, 1].barh(range(len(top_10)), top_10['Accuracy'],
-                        color='green', alpha=0.7)
-        axes[0, 1].set_yticks(range(len(top_10)))
-        axes[0, 1].set_yticklabels([p[:20] for p in top_10['Product']], fontsize=10)
-        axes[0, 1].set_xlabel('Accuracy (%)', fontsize=12)
-        axes[0, 1].set_title('Top 10 Products by Accuracy',
-                             fontsize=14, fontweight='bold')
+        top10 = results_df.nsmallest(10, 'MAPE')
+        axes[0, 1].barh(range(len(top10)), top10['Accuracy'], color='green', alpha=0.7)
+        axes[0, 1].set_yticks(range(len(top10)))
+        axes[0, 1].set_yticklabels([p[:20] for p in top10['Product']], fontsize=10)
+        axes[0, 1].set_xlabel('Accuracy (%)')
+        axes[0, 1].set_title('Top 10 by Accuracy', fontsize=14, fontweight='bold')
         axes[0, 1].axvline(70, color='red', linestyle='--', linewidth=2)
 
-        # Peak timing error
+        # Peak timing
         axes[1, 0].scatter(results_df['Actual_Peak_Day'],
                            results_df['Predicted_Peak_Day'],
                            alpha=0.6, s=100, color='purple')
-        max_peak = max(results_df['Actual_Peak_Day'].max(),
-                       results_df['Predicted_Peak_Day'].max())
-        axes[1, 0].plot([0, max_peak], [0, max_peak], 'r--',
-                        linewidth=2, label='Perfect Prediction')
-        axes[1, 0].set_xlabel('Actual Peak Day', fontsize=12)
-        axes[1, 0].set_ylabel('Predicted Peak Day', fontsize=12)
-        axes[1, 0].set_title('Peak Timing Prediction',
-                             fontsize=14, fontweight='bold')
+        m = max(results_df['Actual_Peak_Day'].max(), results_df['Predicted_Peak_Day'].max())
+        axes[1, 0].plot([0, m], [0, m], 'r--', linewidth=2, label='Perfect')
+        axes[1, 0].set_xlabel('Actual Peak Day')
+        axes[1, 0].set_ylabel('Predicted Peak Day')
+        axes[1, 0].set_title('Peak Timing Prediction', fontsize=14, fontweight='bold')
         axes[1, 0].legend()
 
         # Early detection success
-        success_rate = results_df['Early_Detection_Success'].mean() * 100
-        categories = ['Success', 'Failed']
-        values = [success_rate, 100 - success_rate]
-        colors = ['green', 'red']
-        axes[1, 1].pie(values, labels=categories, autopct='%1.1f%%',
-                       colors=colors, startangle=90, textprops={'fontsize': 12})
-        axes[1, 1].set_title('Early Detection Success Rate (45-60 Days)',
-                             fontsize=14, fontweight='bold')
+        sr = results_df['Early_Detection_Success'].mean() * 100
+        axes[1, 1].pie([sr, 100 - sr], labels=['Success', 'Failed'],
+                       autopct='%1.1f%%', colors=['green', 'red'],
+                       startangle=90, textprops={'fontsize': 12})
+        axes[1, 1].set_title('Early Detection (45-60 Days)', fontsize=14, fontweight='bold')
 
         plt.tight_layout()
-        save_path = self.plots_dir / save_name
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"[OK] Comparison plot saved to {save_path}")
+        plt.savefig(self.plots_dir / save_name, dpi=300, bbox_inches='tight')
+        print(f"[OK] Saved {save_name}")
         plt.show()
 
     def plot_trend_scores(self, df_scored, top_n=15, save_name='trend_scores.png'):
-        """
-        Plot trend scores for top products
-
-        Args:
-            df_scored: DataFrame with trend_score column
-            top_n: Number of products to show
-            save_name: Filename to save
-        """
-        # Get latest score for each product
-        latest_scores = df_scored.groupby('product').apply(
+        """Horizontal bar chart of top trending products by score"""
+        latest = df_scored.groupby('product').apply(
             lambda x: x.nlargest(7, 'date')['trend_score'].mean()
         ).reset_index(name='avg_score')
 
-        top_products = latest_scores.nlargest(top_n, 'avg_score')
+        top = latest.nlargest(top_n, 'avg_score')
 
         fig, ax = plt.subplots(figsize=(12, 8))
+        colors = ['red' if s > 70 else 'orange' if s > 50 else 'green'
+                  for s in top['avg_score']]
 
-        colors = ['red' if score > 70 else 'orange' if score > 50 else 'green'
-                  for score in top_products['avg_score']]
-
-        bars = ax.barh(range(len(top_products)), top_products['avg_score'],
-                       color=colors, alpha=0.7, edgecolor='black')
-
-        ax.set_yticks(range(len(top_products)))
-        ax.set_yticklabels([p[:30] for p in top_products['product']], fontsize=10)
+        ax.barh(range(len(top)), top['avg_score'], color=colors, alpha=0.7, edgecolor='black')
+        ax.set_yticks(range(len(top)))
+        ax.set_yticklabels([p[:30] for p in top['product']], fontsize=10)
         ax.set_xlabel('Trend Score (0-100)', fontsize=13, fontweight='bold')
-        ax.set_title('Top Trending Products - Real-Time Scores',
-                     fontsize=15, fontweight='bold', pad=20)
-
-        # Add threshold lines
-        ax.axvline(60, color='red', linestyle='--', linewidth=2,
-                   label='High Potential Threshold', alpha=0.7)
-        ax.axvline(40, color='orange', linestyle='--', linewidth=2,
-                   label='Medium Potential', alpha=0.7)
-
-        ax.legend(loc='lower right', fontsize=11)
+        ax.set_title('Top Trending Products', fontsize=15, fontweight='bold')
+        ax.axvline(60, color='red', linestyle='--', linewidth=2, label='High Potential', alpha=0.7)
+        ax.legend()
         ax.grid(axis='x', alpha=0.3)
 
         plt.tight_layout()
-        save_path = self.plots_dir / save_name
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"[OK] Trend scores plot saved to {save_path}")
+        plt.savefig(self.plots_dir / save_name, dpi=300, bbox_inches='tight')
+        print(f"[OK] Saved {save_name}")
         plt.show()
 
     def plot_component_breakdown(self, forecast_result, save_name='components.png'):
-        """
-        Plot individual model components
-
-        Args:
-            forecast_result: Dict from ensemble_forecast
-            save_name: Filename to save
-        """
+        """Show each model's individual prediction vs the ensemble"""
         fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-
         days = range(len(forecast_result['forecast']))
 
         # LSTM
-        axes[0, 0].plot(days, forecast_result['components']['lstm'],
-                        'b-', linewidth=2, label='LSTM Prediction')
-        axes[0, 0].set_title('LSTM Model (50% weight)', fontsize=13, fontweight='bold')
-        axes[0, 0].set_xlabel('Days Ahead')
+        axes[0, 0].plot(days, forecast_result['components']['lstm'], 'b-', linewidth=2)
+        axes[0, 0].set_title('LSTM (55% weight)', fontsize=13, fontweight='bold')
         axes[0, 0].set_ylabel('Predicted Mentions')
         axes[0, 0].grid(alpha=0.3)
 
         # ARIMA
-        axes[0, 1].plot(days, forecast_result['components']['arima'],
-                        'g-', linewidth=2, label='ARIMA Prediction')
-        axes[0, 1].set_title('ARIMA Model (30% weight)', fontsize=13, fontweight='bold')
-        axes[0, 1].set_xlabel('Days Ahead')
-        axes[0, 1].set_ylabel('Predicted Mentions')
+        axes[0, 1].plot(days, forecast_result['components']['arima'], 'g-', linewidth=2)
+        axes[0, 1].set_title('ARIMA (30% weight)', fontsize=13, fontweight='bold')
         axes[0, 1].grid(alpha=0.3)
 
         # Prophet
-        axes[1, 0].plot(days, forecast_result['components']['prophet'],
-                        'orange', linewidth=2, label='Prophet Prediction')
-        axes[1, 0].set_title('Prophet Model (20% weight)', fontsize=13, fontweight='bold')
+        axes[1, 0].plot(days, forecast_result['components']['prophet'], color='orange', linewidth=2)
+        axes[1, 0].set_title('Prophet (15% weight)', fontsize=13, fontweight='bold')
         axes[1, 0].set_xlabel('Days Ahead')
-        axes[1, 0].set_ylabel('Predicted Mentions')
         axes[1, 0].grid(alpha=0.3)
 
         # Ensemble
-        axes[1, 1].plot(days, forecast_result['forecast'],
-                        'r-', linewidth=2.5, label='Ensemble')
+        axes[1, 1].plot(days, forecast_result['forecast'], 'r-', linewidth=2.5)
         axes[1, 1].fill_between(days, forecast_result['lower_bound'],
-                                forecast_result['upper_bound'],
-                                alpha=0.3, color='red')
-        axes[1, 1].set_title('Final Ensemble Forecast', fontsize=13, fontweight='bold')
+                                forecast_result['upper_bound'], alpha=0.3, color='red')
+        axes[1, 1].set_title('Ensemble (Final)', fontsize=13, fontweight='bold')
         axes[1, 1].set_xlabel('Days Ahead')
-        axes[1, 1].set_ylabel('Predicted Mentions')
         axes[1, 1].grid(alpha=0.3)
 
         plt.tight_layout()
-        save_path = self.plots_dir / save_name
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"[OK] Component breakdown saved to {save_path}")
+        plt.savefig(self.plots_dir / save_name, dpi=300, bbox_inches='tight')
+        print(f"[OK] Saved {save_name}")
         plt.show()
-
-
-# Test visualizer
-if __name__ == "__main__":
-    from data_loader import KaggleDataLoader
-    from forecasting_model import HybridForecastingModel
-    from trend_scorer import TrendScorer
-
-    print("Testing Visualizer...")
-
-    # Load data
-    loader = KaggleDataLoader()
-    df = loader.load_and_merge_all()
-
-    # Get one product
-    product = df['product'].unique()[0]
-    product_df = df[df['product'] == product].copy()
-
-    # Generate forecast
-    model = HybridForecastingModel()
-    train_df = product_df[:120]
-    forecast = model.ensemble_forecast(train_df)
-
-    # Create visualizations
-    viz = Visualizer()
-
-    print("\n1. Creating forecast plot...")
-    viz.plot_forecast_with_actual(product_df, forecast,
-                                  save_name=f'forecast_{product}.png')
-
-    print("\n2. Creating component breakdown...")
-    viz.plot_component_breakdown(forecast, save_name='model_components.png')
-
-    # Trend scores
-    print("\n3. Creating trend scores plot...")
-    scorer = TrendScorer()
-    df_scored = df.groupby('product', group_keys=False).apply(
-        lambda x: scorer.calculate_trend_score(x)
-    )
-    viz.plot_trend_scores(df_scored, save_name='trend_leaderboard.png')

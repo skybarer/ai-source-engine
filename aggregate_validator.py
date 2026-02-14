@@ -1,6 +1,22 @@
 """
-Aggregate Validation Module
-Validates on market-level trends (all products combined)
+=============================================================================
+AGGREGATE_VALIDATOR.PY - Market-Level + Top Product Validation
+=============================================================================
+
+PURPOSE: Validate the model at two levels:
+  1. AGGREGATE (all products combined → market-level trend)
+  2. INDIVIDUAL (top 5 products with most data)
+
+WHY AGGREGATE VALIDATION?
+  Individual products in our Kaggle data are sparse (few days each).
+  But when we SUM mentions across ALL products per day, we get a 
+  dense, continuous time series representing the overall market trend.
+  This is our PRIMARY validation target.
+
+WHY ALSO INDIVIDUAL?
+  To show the model works on specific products too, not just aggregate.
+  We pick the top 5 products with most records (>10 data points).
+=============================================================================
 """
 
 import pandas as pd
@@ -10,7 +26,7 @@ from data_augmentation import DataAugmenter
 
 
 class AggregateValidator(ModelValidator):
-    """Validate on aggregate time series data with noise-reduction augmentation"""
+    """Extends ModelValidator with aggregate and per-product validation"""
     
     def __init__(self):
         super().__init__()
@@ -18,63 +34,55 @@ class AggregateValidator(ModelValidator):
     
     def validate_aggregate_trend(self, data_df, model):
         """
-        Validate on aggregate market-level trend
+        Validate on aggregate market trend (all products combined).
         
-        Groups all products by date and sums mentions to create
-        a continuous time series for market-level forecasting
-        
-        Args:
-            data_df: Full dataset with all products
-            model: Trained forecasting model
-            
-        Returns:
-            dict of validation metrics, or None if failed
+        Process:
+          1. Group ALL products by date → sum mentions, mean sentiment
+          2. Apply 7-day smoothing (noise reduction)
+          3. Split into train/test
+          4. Run ensemble forecast on train portion
+          5. Compare forecast vs actual test portion
+          6. Compute metrics (MAPE, MAE, etc.)
         """
-        print("\nAggregating data by date...")
+        print("\nAggregating data by date (summing across all products)...")
         
-        # Aggregate by date - sum mentions across all products
+        # Sum mentions across all products for each day
         trend_df = data_df.groupby('date').agg({
-            'mentions': 'sum',
-            'sentiment': 'mean'
+            'mentions': 'sum',       # Total mentions per day
+            'sentiment': 'mean'      # Average sentiment per day
         }).reset_index().sort_values('date')
         
-        print(f"[OK] Aggregate trend created: {len(trend_df)} daily data points")
+        print(f"[OK] Aggregate: {len(trend_df)} daily data points")
         
-        # Apply smoothing for noise reduction (84% noise reduction)
+        # Apply smoothing to reduce noise
         trend_df = self.augmenter.augment_aggregate(trend_df)
-        print(f"[OK] Applied 7-day moving average smoothing (noise reduction)")
+        print(f"[OK] Applied 7-day moving average smoothing")
         
-        # Check if we have enough data
         if len(trend_df) < 30:
-            print(f"[FAIL] Insufficient data for validation ({len(trend_df)} points < 30)")
+            print(f"[FAIL] Only {len(trend_df)} points (need 30+)")
             return None
         
-        # Split into train/test using configuration
+        # Train/test split
         train_days = min(self.config['train_days'], len(trend_df) // 2)
         test_days = min(self.config['test_days'], len(trend_df) // 3)
-        
         if test_days < 5:
-            print(f"[FAIL] Insufficient test data ({test_days} points < 5)")
+            print(f"[FAIL] Only {test_days} test points (need 5+)")
             return None
         
         train_df = trend_df[:train_days].copy()
         test_df = trend_df[train_days:train_days + test_days].copy()
-        
         actual = test_df['mentions'].values
         
-        print(f"  - Train size: {len(train_df)} days")
-        print(f"  - Test size: {len(test_df)} days")
+        print(f"  Train: {len(train_df)} days | Test: {len(test_df)} days")
         
-        # Forecast
         try:
-            print("  - Generating ensemble forecast...")
+            print("  Generating ensemble forecast...")
             forecast_result = model.ensemble_forecast(train_df, verbose=0)
             predicted = forecast_result['forecast']
             
-            # Calculate metrics
             metrics = self.calculate_metrics(actual, predicted)
             
-            result = {
+            return {
                 'Product': 'Market Aggregate (All Products)',
                 'Data_Points': len(trend_df),
                 'Train_Size': len(train_df),
@@ -83,142 +91,53 @@ class AggregateValidator(ModelValidator):
                 'Predicted_Mean': round(predicted.mean(), 2),
                 **metrics
             }
-            
-            print("  [OK] Validation complete")
-            return result
-            
         except Exception as e:
             print(f"[FAIL] Validation failed: {e}")
             return None
     
     def validate_top_products(self, data_df, model, top_n=5):
         """
-        Validate on top N products (those with most records)
+        Validate on top N individual products (those with most records).
         
-        Identifies products with sufficient data and validates
-        the ensemble model on each individually
-        
-        Args:
-            data_df: Full dataset with all products
-            model: Trained forecasting model
-            top_n: Number of top products to validate
-            
-        Returns:
-            list of result dicts (one per product validated)
+        Prioritizes REAL products over synthetic ones.
+        Applies smoothing to each product before validation.
         """
-        # Find products with enough data (minimum 10 records)
-        # Prioritize REAL products, then include synthetic if needed
-        real_data = data_df[~data_df['product'].str.startswith('synthetic_')]
-        synthetic_data = data_df[data_df['product'].str.startswith('synthetic_')]
+        # Separate real vs synthetic products
+        real = data_df[~data_df['product'].str.startswith('synthetic_')]
+        synthetic = data_df[data_df['product'].str.startswith('synthetic_')]
         
-        real_counts = real_data['product'].value_counts()
+        # Find products with enough data (min 10 records)
+        real_counts = real['product'].value_counts()
         real_top = real_counts[real_counts >= 10].head(top_n)
         
-        # If not enough real products, supplement with synthetic
+        # Supplement with synthetic if needed
         if len(real_top) < top_n:
-            syn_counts = synthetic_data['product'].value_counts()
+            syn_counts = synthetic['product'].value_counts()
             syn_top = syn_counts[syn_counts >= 10].head(top_n - len(real_top))
             top_products = pd.concat([real_top, syn_top])
         else:
             top_products = real_top
         
         if len(top_products) == 0:
-            print(f"\n[WARN]  No products have >= 10 records for individual validation")
-            print(f"   Max records per product: {product_counts.max()}")
+            print("[WARN] No products have enough data for individual validation")
             return []
         
-        print(f"\n[OK] Found {len(top_products)} products with >= 10 records:")
-        for i, (product_name, count) in enumerate(top_products.items(), 1):
-            print(f"  {i}. {product_name}: {count} records")
+        print(f"\n[OK] Found {len(top_products)} products with 10+ records:")
+        for i, (name, count) in enumerate(top_products.items(), 1):
+            print(f"  {i}. {name[:50]}: {count} records")
         
         results = []
-        for idx, (product_name, count) in enumerate(top_products.items(), 1):
-            product_df = data_df[data_df['product'] == product_name].sort_values('date')
-            
-            # Apply smoothing to individual product data
+        for idx, (name, count) in enumerate(top_products.items(), 1):
+            product_df = data_df[data_df['product'] == name].sort_values('date')
             product_df = self.augmenter.smooth_product_data(product_df)
             
-            print(f"\n[{idx}/{len(top_products)}] Validating: {product_name[:40]}...")
-            
-            # Validate
-            result = self.validate_single_product(product_df, model, product_name)
+            print(f"\n[{idx}/{len(top_products)}] Validating: {name[:40]}...")
+            result = self.validate_single_product(product_df, model, name)
             
             if result:
                 results.append(result)
-                print(f"  [OK] MAE={result['MAE']}, Accuracy={result['Accuracy']}%, "
-                      f"Peak Error={result['Peak_Timing_Error_Days']} days")
+                print(f"  [OK] Accuracy={result['Accuracy']}%, Peak Error={result['Peak_Timing_Error_Days']} days")
             else:
-                print(f"  ⊘ Validation skipped (insufficient processable data)")
-        
-        return results
-    
-    def validate_by_category(self, data_df, model):
-        """
-        Validate on category-level aggregates
-        
-        Groups by product category and validates ensemble
-        on category-level trends
-        
-        Args:
-            data_df: Full dataset with category info
-            model: Trained forecasting model
-            
-        Returns:
-            list of result dicts (one per category)
-        """
-        if 'category' not in data_df.columns:
-            print("[WARN]  No category column in data, skipping category validation")
-            return []
-        
-        categories = data_df['category'].unique()
-        print(f"\n[OK] Found {len(categories)} product categories")
-        
-        results = []
-        for category in categories[:5]:  # Top 5 categories
-            category_df = data_df[data_df['category'] == category]
-            
-            # Aggregate by date within category
-            trend_df = category_df.groupby('date').agg({
-                'mentions': 'sum',
-                'sentiment': 'mean'
-            }).reset_index().sort_values('date')
-            
-            if len(trend_df) < 30:
-                continue
-            
-            print(f"\n[Category: {category}] - {len(trend_df)} daily points")
-            
-            # Split and validate
-            train_days = min(self.config['train_days'], len(trend_df) // 2)
-            test_days = min(self.config['test_days'], len(trend_df) // 3)
-            
-            if test_days < 5:
-                continue
-            
-            train_df = trend_df[:train_days]
-            test_df = trend_df[train_days:train_days + test_days]
-            
-            actual = test_df['mentions'].values
-            
-            try:
-                forecast_result = model.ensemble_forecast(train_df, verbose=0)
-                predicted = forecast_result['forecast']
-                
-                metrics = self.calculate_metrics(actual, predicted)
-                
-                result = {
-                    'Product': f'Category: {category}',
-                    **metrics,
-                    'Data_Points': len(trend_df),
-                    'Train_Size': len(train_df),
-                    'Test_Size': len(test_df)
-                }
-                
-                results.append(result)
-                print(f"  [OK] Accuracy={metrics['Accuracy']}%")
-                
-            except Exception as e:
-                print(f"  [FAIL] Validation failed: {e}")
-                continue
+                print(f"  [SKIP] Insufficient processable data")
         
         return results
