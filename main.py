@@ -147,11 +147,37 @@ def main():
 
     viz = Visualizer()
 
-    # 1. Forecast plot
+    # ── Part A: Data Exploration Plots (show what data we have) ──
+    print("\n--- A. DATA EXPLORATION PLOTS (8 plots) ---")
+    try:
+        viz.generate_all_data_plots(df)
+    except Exception as e:
+        print(f"[WARN] Some data plots failed: {e}")
+        import traceback; traceback.print_exc()
+
+    # ── Part B: Trend Score Plots ──
+    print("\n--- B. TREND SCORE PLOTS (2 plots) ---")
+    try:
+        print("\n9. Trend scores leaderboard...")
+        viz.plot_trend_scores(df_scored, top_n=15, save_name='trend_leaderboard.png')
+    except Exception as e:
+        print(f"[WARN] Trend leaderboard failed: {e}")
+
+    try:
+        print("10. Trend score components (4-factor breakdown)...")
+        viz.plot_trend_components(df_scored, top_n=10,
+                                  save_name='trend_score_components.png')
+    except Exception as e:
+        print(f"[WARN] Trend components failed: {e}")
+
+    # ── Part C: Model Result Plots ──
+    print("\n--- C. MODEL RESULT PLOTS (3 plots) ---")
+
+    # 11. Forecast plot
     if results is not None and len(results) > 0:
         try:
             best = results.loc[results['MAPE'].idxmin(), 'Product']
-            print(f"\n1. Forecast plot for: {best}")
+            print(f"\n11. Forecast plot for: {best}")
 
             if best == 'Market Aggregate (All Products)':
                 trend_df = df.groupby('date').agg({
@@ -169,40 +195,24 @@ def main():
                 forecast = model.ensemble_forecast(train_df, verbose=0)
                 viz.plot_forecast_with_actual(product_df, forecast,
                     train_days=train_days, save_name='best_forecast.png')
-                import matplotlib.pyplot as plt
-                plt.close('all')
         except Exception as e:
             print(f"[WARN] Forecast plot failed: {e}")
-            import matplotlib.pyplot as plt; plt.close('all')
 
-    # 2. Model comparison
+    # 12. Model comparison / validation metrics
     if results is not None:
         try:
-            print("\n2. Model comparison plot...")
+            print("\n12. Validation metrics dashboard...")
             viz.plot_model_comparison(results, save_name='validation_metrics.png')
-            import matplotlib.pyplot as plt; plt.close('all')
         except Exception as e:
             print(f"[WARN] Comparison plot failed: {e}")
-            import matplotlib.pyplot as plt; plt.close('all')
 
-    # 3. Trend leaderboard
+    # 13. Component breakdown
     try:
-        print("\n3. Trend scores leaderboard...")
-        viz.plot_trend_scores(df_scored, top_n=15, save_name='trend_leaderboard.png')
-        import matplotlib.pyplot as plt; plt.close('all')
-    except Exception as e:
-        print(f"[WARN] Trend plot failed: {e}")
-        import matplotlib.pyplot as plt; plt.close('all')
-
-    # 4. Component breakdown
-    try:
-        print("\n4. Component breakdown (LSTM/ARIMA/Prophet)...")
+        print("13. Ensemble component breakdown (LSTM/ARIMA/Prophet)...")
         if 'forecast' in locals():
             viz.plot_component_breakdown(forecast, save_name='ensemble_components.png')
-            import matplotlib.pyplot as plt; plt.close('all')
     except Exception as e:
         print(f"[WARN] Component plot failed: {e}")
-        import matplotlib.pyplot as plt; plt.close('all')
 
     # ═══════════ STEP 6: SUMMARY ════════════════════════════════
     print("\n[STEP 6/6] SUMMARY REPORT")
