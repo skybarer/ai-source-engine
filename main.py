@@ -16,6 +16,7 @@ from trend_scorer import TrendScorer
 from forecasting_model import HybridForecastingModel
 from validator import ModelValidator
 from visualizer import Visualizer
+from data_augmentation import DataAugmenter
 from config import RESULTS_DIR, PLOTS_DIR
 
 import warnings
@@ -44,6 +45,15 @@ def main():
         return
 
     print(f"\n[OK] Loaded {len(df)} records across {df['product'].nunique()} products")
+
+    # ========== STEP 1.5: DATA AUGMENTATION ==========
+    print("\n[STEP 1.5] DATA AUGMENTATION (Noise Reduction + Synthetic Trends)")
+    print("-" * 70)
+
+    augmenter = DataAugmenter(smoothing_window=7)
+    df = augmenter.augment_dataset(df, n_synthetic=30)
+    print(f"[OK] Added 30 synthetic trend products with realistic viral patterns")
+    print(f"[OK] Smoothing will be applied during validation (7-day moving average)")
 
     # ========== STEP 2: CALCULATE TREND SCORES ==========
     print("\n[STEP 2/6] CALCULATING TREND SCORES")

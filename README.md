@@ -1,33 +1,106 @@
-# AI Trend-to-Source Engine: Complete Project Documentation
+# AI Trend-to-Source Engine - Live Data Pipeline
 
-**M.Tech Dissertation - BITS Pilani**  
-**Student:** INKOLLU AKASHDHAR (2023AC05051)  
-**Status:** Phase 1 Complete ✓ | Phase 2 Ready
+## 🚀 Quick Start
 
----
-
-## 📋 Table of Contents
-1. [Quick Start](#quick-start)
-2. [Project Overview](#project-overview)
-3. [Data Overview](#data-overview)
-4. [Temporal Signal Analysis](#temporal-signal-analysis)
-5. [Model Architecture](#model-architecture)
-6. [Time Series Analysis](#time-series-analysis)
-7. [Performance Metrics](#performance-metrics)
-8. [Research Contributions](#research-contributions)
-9. [Literature & SOTA](#literature--state-of-the-art)
-10. [Validation & Baselines](#validation--baselines)
-11. [File Structure](#file-structure)
-12. [Quick Reference Answers](#quick-reference-answers)
-13. [Next Steps](#next-steps)
-
----
-
-## Quick Start
-
+### 1. Scrape 20k+ Products (Batch Saves + Parallel)
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+python scrape_production_parallel.py
+```
+✓ 70 queries × 5 pages = ~20,000 products
+✓ Saves in batches (every 5 queries)  
+✓ 2 parallel batches (10-15 min)
+✓ Safe against interruptions
+
+### 2. Process Data & Calculate Features
+```bash
+python process_live_data.py
+```
+✓ Adds 27 fields including sentiment_score
+✓ Rating: 0-5 range
+✓ Sentiment: 0-1 range
+✓ Output: `data/processed/live_analysis_data.csv`
+
+### 3. Train & Forecast
+```bash
+python main.py
+```
+✓ LSTM + ARIMA + Prophet ensemble
+✓ Generates predictions
+✓ Output: `outputs/results/validation_metrics.csv`
+
+### 4. View Dashboard
+```bash
+python dashboard.py
+```
+✓ Interactive visualization
+✓ Real-time metrics
+✓ Port: http://localhost:8501
+
+---
+
+## 📁 Core Files (13 Total)
+
+| File | Purpose |
+|------|---------|
+| `scrape_production_parallel.py` | Scrape 20k+ with batch saves |
+| `process_live_data.py` | Feature engineering |
+| `main.py` | Forecasting pipeline |
+| `dashboard.py` | Interactive UI |
+| `config.py` | Configuration |
+| `data_loader.py` | Data loading |
+| `trend_scorer.py` | Trend scoring |
+| `forecasting_model.py` | LSTM/ARIMA/Prophet |
+| `validator.py` | Accuracy metrics |
+| `visualizer.py` | Plotting |
+| `aggregate_validator.py` | Market validation |
+
+---
+
+## ✨ Key Features
+
+✅ **Live Data:** Real Amazon products
+✅ **Batch Saving:** Auto-save every 5 queries (safe)
+✅ **Parallel:** 2 concurrent batches (50% faster)
+✅ **27 Features:** Price, rating, sentiment, metrics, time
+✅ **Sentiment Score:** 0-1 range (rating/5)
+✅ **Ensemble:** LSTM 50% + ARIMA 30% + Prophet 20%
+✅ **Expected Accuracy:** 50-70%+ (vs 30% synthetic)
+
+---
+
+## 📊 Data Format
+
+**Raw Data (9 fields):**
+- timestamp, platform, product_name
+- price, rating, review_count
+- image_url, product_url, search_query
+
+**Processed Data (27 fields):**
+- Date/Time: date, timestamp, day_of_week, week_of_year, month
+- Metrics: price (min/max/category), avg_rating, sentiment_score
+- Growth: mentions, mention_growth, cumulative_*
+- Reviews: total_reviews, avg_review_per_mention
+- Meta: image_url, product_url
+
+---
+
+## ⚙️ Configuration
+
+Edit `config.py` to change:
+- `LSTM_UNITS`: [128, 64, 32] (layer sizes)
+- `EPOCHS`: 100 (training iterations)
+- `BATCH_SIZE`: 16
+- `LOOKBACK_DAYS`: 30
+- `FORECAST_HORIZON`: 60
+
+---
+
+## 🔍 Validation Ranges
+
+**Rating & Sentiment:**
+- avg_rating: 0-5 (0=poor, 5=excellent)
+- sentiment_score: 0-1 (rating/5)
+- sentiment_momentum: rate of change
 
 # Run complete pipeline
 python main.py

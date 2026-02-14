@@ -14,6 +14,10 @@ warnings.filterwarnings('ignore')
 import torch
 import torch.nn as nn
 
+# Set random seeds for reproducibility
+np.random.seed(42)
+torch.manual_seed(42)
+
 # Time Series
 from statsmodels.tsa.arima.model import ARIMA
 from prophet import Prophet
@@ -82,11 +86,11 @@ class HybridForecastingModel:
         # Set device (CPU for Windows compatibility)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Ensemble weights
+        # Ensemble weights - balanced for better predictions
         self.weights = {
-            'lstm': 0.5,
+            'lstm': 0.55,   # Slightly boost LSTM
             'arima': 0.3,
-            'prophet': 0.2
+            'prophet': 0.15 # Reduce Prophet noise
         }
 
         print(f"[OK] Using PyTorch on {self.device}")

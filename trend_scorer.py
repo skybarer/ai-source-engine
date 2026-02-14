@@ -31,6 +31,16 @@ class TrendScorer:
         try:
             df = df.sort_values('date').copy().reset_index(drop=True)
 
+            # Ensure required columns exist
+            if 'mentions' not in df.columns or 'sentiment' not in df.columns:
+                # If missing, try to find alternative column names
+                if 'rating' in df.columns and 'mentions' not in df.columns:
+                    df['mentions'] = df['rating']
+                if 'sentiment_score' in df.columns and 'sentiment' not in df.columns:
+                    df['sentiment'] = df['sentiment_score']
+                elif 'sentiment' not in df.columns:
+                    df['sentiment'] = 0.5
+
             # Ensure numeric types
             df['mentions'] = pd.to_numeric(df['mentions'], errors='coerce').fillna(0)
             df['sentiment'] = pd.to_numeric(df['sentiment'], errors='coerce').fillna(0.5)

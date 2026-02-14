@@ -84,8 +84,9 @@ class ModelValidator:
         train_days = self.config['train_days']
         test_days = self.config['test_days']
 
-        # Check if enough data - flexible check for sparse data
-        min_required = max(train_days, 20)  # At least 20 data points
+        # Flexible minimum: need at least lookback + horizon + test_days data points
+        # (not the full train_days, which may be very large for aggregate)
+        min_required = max(40, test_days + 20)  # At least 40 data points
         if len(product_df) < min_required:
             return None
 

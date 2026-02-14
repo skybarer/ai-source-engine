@@ -3,6 +3,8 @@ Visualization Module
 Creates plots for dissertation and dashboard
 """
 
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend (prevents plt.show() blocking)
 import matplotlib.pyplot as plt
 import seaborn as sns
 

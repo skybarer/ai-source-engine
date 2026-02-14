@@ -30,13 +30,13 @@ for directory in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR,
 
 # Model Hyperparameters
 MODEL_CONFIG = {
-    "lookback_days": 30,           # Historical window for LSTM
-    "forecast_horizon": 60,        # Predict 60 days ahead
-    "lstm_units": [128, 64, 32],   # LSTM layer sizes
-    "dropout_rate": 0.2,
-    "batch_size": 16,
-    "epochs": 50,
-    "learning_rate": 0.001,
+    "lookback_days": 20,           # Reduced from 30 for better signal detection
+    "forecast_horizon": 15,        # Predict 15 days ahead
+    "lstm_units": [256, 128, 64],  # INCREASED from [128, 64, 32] for more capacity
+    "dropout_rate": 0.15,          # Reduced from 0.2
+    "batch_size": 8,               # Reduced from 16 for better learning
+    "epochs": 200,                 # Increased for better convergence
+    "learning_rate": 0.0008,       # Reduced from 0.001 for finer tuning
     "arima_order": (2, 1, 2),      # (p, d, q)
     "prophet_seasonality": "multiplicative"
 }
@@ -53,9 +53,9 @@ TREND_SCORING = {
 
 # Validation Settings
 VALIDATION_CONFIG = {
-    "train_days": 30,      # ↓ Reduced to work with sparse per-product data
-    "test_days": 15,       # ↓ Reduced for flexible time series windows
-    "min_products_for_validation": 3,  # ↓ More lenient threshold
+    "train_days": 200,     # Use 200 days for training (LSTM needs lookback+horizon+N sequences)
+    "test_days": 15,       # Test on 15 days
+    "min_products_for_validation": 3,  # More lenient threshold
     "target_mape": 30.0,              # Target < 30% MAPE (70% accuracy)
     "early_detection_window": (45, 60) # Days before peak
 }

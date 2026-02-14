@@ -11,6 +11,9 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+# Set global random seed for reproducibility
+np.random.seed(42)
+
 from config import KAGGLE_DATA, PROCESSED_DATA_DIR, PRODUCT_CATEGORIES
 
 
